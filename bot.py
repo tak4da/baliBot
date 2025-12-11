@@ -25,8 +25,11 @@ from sqlalchemy.orm import sessionmaker
 
 # ------------- НАСТРОЙКИ -------------
 
-TOKEN = "8104095114:AAE2sFgh0SCNP6uhXYHl2Yg5oagsYpLxYlQ"
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data_simple.db")
+from dotenv import load_dotenv
+load_dotenv()
+
+TOKEN = os.getenv("TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data_simple.db")
 
 # ID чата-конфы магазина (Бализаж), куда слать уведомления
 BALIZAG_CHAT_ID = -1002815036494      # правильный ID группы
