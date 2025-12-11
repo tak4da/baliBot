@@ -981,7 +981,7 @@ async def history(message: types.Message):
         await message.answer("У тебя нет прав для просмотра истории.")
         return
 
-@dp.message(F.text == "История обходов")
+@dp.message(F.text == "ИСТОРИЯ ОБХОДОВ")
 async def history(message: types.Message):
     s = get_session()
 
