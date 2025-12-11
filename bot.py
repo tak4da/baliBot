@@ -165,11 +165,11 @@ def purge_old_data(days: int = 15):
 def main_menu_kb(is_admin_user: bool) -> ReplyKeyboardMarkup:
     """
     Главное меню:
-    - обычный пользователь: только 'Исправить замечания'
+    - обычный пользователь: только 'ИСПРАВИТЬ ЗАМЕЧАНИЯ'
     - админ:
-        [Сделать обход]
-        [История обходов] [Очистить историю]
-        [Исправить замечания]
+        [СДЕЛАТЬ ОБХОД]
+        [ИСТОРИЯ ОБХОДОВ] [ОЧИСТИТЬ ИСТОРИЮ]
+        [ИСПРАВИТЬ ЗАМЕЧАНИЯ]
     """
     builder = ReplyKeyboardBuilder()
 
@@ -188,7 +188,7 @@ def main_menu_kb(is_admin_user: bool) -> ReplyKeyboardMarkup:
         builder.adjust(1, 2, 1)
     else:
         # для обычного пользователя только одна кнопка
-        builder.button(text="Исправить замечания")
+        builder.button(text="ИСПРАВИТЬ ЗАМЕЧАНИЯ")
         builder.adjust(1)
 
     return builder.as_markup(resize_keyboard=True)
