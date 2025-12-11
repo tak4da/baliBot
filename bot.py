@@ -973,18 +973,14 @@ async def return_issue_to_work(callback: types.CallbackQuery):
 
 
 # ===== ИСТОРИЯ ОБХОДОВ =====
-
 @dp.message(F.text == "ИСТОРИЯ ОБХОДОВ")
 async def history(message: types.Message):
-
+    # только для админов
     if not is_admin(message.from_user.id):
         await message.answer("У тебя нет прав для просмотра истории.")
         return
 
-@dp.message(F.text == "ИСТОРИЯ ОБХОДОВ")
-async def history(message: types.Message):
     s = get_session()
-
     inspections = s.query(Inspection).all()
     issues = s.query(Issue).all()
 
@@ -999,12 +995,13 @@ async def history(message: types.Message):
     s.close()
 
     lines = []
-    lines.append("📊 *Общая статистика*")
-    lines.append(f"🧭 Обходов: *{total_inspections}*")
+    lines.append("*Общая статистика*")
+    lines.append(f"Обходов: *{total_inspections}*")
     lines.append(f"✔ Завершено: *{completed}*")
+    lines.append(f"🟡 Активных: *{active}*")
     lines.append("")
-    lines.append(f"🗂️ Замечаний: *{total_issues}*")
-    lines.append(f"🛠 В работе: *{open_issues}*")
+    lines.append(f"⚠️ Замечаний: *{total_issues}*")
+    lines.append(f" В работе: *{open_issues}*")
     lines.append(f"✔ Закрыто: *{closed_issues}*")
     lines.append("")
     lines.append("Чтобы посмотреть детали по конкретному отделу — выбери его ниже 👇")
@@ -1044,17 +1041,16 @@ async def history_by_department(callback: types.CallbackQuery):
     s.close()
 
     lines = []
-    lines.append(f"📍 *{dept.name}*")
-    lines.append(f"🧭 Обходов: *{total_inspections}*")
+    lines.append(f"*{dept.name}*")
+    lines.append(f"Обходов: *{total_inspections}*")
     lines.append(f"✔ Завершено: *{completed}*")
-    lines.append(f"🕓 Активных: *{active}*")
+    lines.append(f"🟡 Активных: *{active}*")
     lines.append("")
-    lines.append(f"🗂️ Замечаний: *{total_issues}*")
-    lines.append(f"🛠 В работе: *{open_issues}*")
+    lines.append(f"⚠️ Замечаний: *{total_issues}*")
+    lines.append(f" В работе: *{open_issues}*")
     lines.append(f"✔ Закрыто: *{closed_issues}*")
 
     text = "\n".join(lines)
-
     await callback.message.answer(text, parse_mode="Markdown")
     await callback.answer()
 
