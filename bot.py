@@ -804,6 +804,7 @@ async def finish_inspection(message: types.Message):
                 f"👤 Аудитор: {inspector_name}\n"
                 f"📅 Дата аудита: {ins_date.strftime('%d.%m.%Y')}\n"
                 f"⏳ Контроль до: {control_date.strftime('%d.%m.%Y')}"
+                f"🤖 Исправить тут: @BalisageAudit_bot\n"
             )
 
             await bot.send_message(
