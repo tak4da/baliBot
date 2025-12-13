@@ -735,7 +735,7 @@ issues_count = (
     control_date = ins_date + timedelta(days=7)
 
     text = (
-    f"Обходы по бализажу\n"
+    f"Завершён обход по бализажу\n"
     f"🏷 Отдел: {dept_name}\n"
     f"⚠️ Замечаний: {issues_count}\n"
     f"👤 Аудитор: {inspector_name}\n"
