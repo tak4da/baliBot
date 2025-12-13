@@ -813,6 +813,7 @@ async def finish_inspection(message: types.Message):
                 chat_id=BALIZAG_CHAT_ID,
                 text=text,
                 message_thread_id=BALIZAG_THREAD_ID,
+                parse_mode=ParseMode.HTML,
             )
         except Exception as e:
             logger.exception(
