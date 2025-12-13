@@ -32,7 +32,9 @@ TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data_simple.db")
 
 # ID чата-конфы магазина (Бализаж), куда слать уведомления
-BALIZAG_CHAT_ID = -1003437873275      # правильный ID группы
+BALIZAG_CHAT_ID = -1002815036494      # правильный ID группы
+# ID ветки в Бализаж (если нужна). Пока None — можно потом подставить.
+BALIZAG_THREAD_ID = 445
 
 # ID админов, которые могут подтверждать/возвращать замечания
 ADMIN_IDS = {377226664, 1705170078}
@@ -271,33 +273,212 @@ async def cmd_start(message: types.Message):
 
 # ===== ОЧИСТКА ИСТОРИИ =====
 
-@dp.message(
-    F.text
-    & (~F.text.startswith("/"))
-    & (F.text != "СДЕЛАТЬ ОБХОД")
-    & (F.text != "ИСТОРИЯ ОБХОДОВ")
-    & (F.text != "ОЧИСТИТЬ ИСТОРИЮ")
-    & (F.text != "ЗАВЕРШИТЬ ОБХОД")
-    & (F.text != "НАЗАД")
-    & (F.text != "ИСПРАВИТЬ ЗАМЕЧАНИЯ")
-)
-async def handle_text_comment(message: types.Message):
+@dp.message(F.text == "ОЧИСТИТЬ ИСТОРИЮ")
+async def ask_clear_history(message: types.Message):
+    # только для админов
+    if not is_admin(message.from_user.id):
+        await message.answer("У тебя нет прав для очистки истории.")
+        return
+
+    await message.answer(
+        "Выбери период, за который нужно удалить историю обходов и связанных замечаний:",
+        reply_markup=clear_history_kb(),
+    )
+
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("clear_history:"))
+async def clear_history_callback(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("У тебя нет прав для этой операции.", show_alert=True)
+        return
+
+    _, period = callback.data.split(":")  # "7" / "30" / "all"
+
+    s = get_session()
+
+    if period == "all":
+        inspections_q = s.query(Inspection)
+        period_text = "за всё время"
+    else:
+        days = int(period)
+        cutoff_date = date.today() - timedelta(days=days)
+        inspections_q = s.query(Inspection).filter(
+            Inspection.date >= cutoff_date,
+            Inspection.date <= date.today(),
+        )
+        period_text = f"за последние {days} дней"
+
+    inspections = inspections_q.all()
+
+    if not inspections:
+        s.close()
+        await callback.answer("Под этот период обходов не найдено.", show_alert=True)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    ins_ids = [i.id for i in inspections]
+
+    issues_deleted = (
+        s.query(Issue)
+        .filter(Issue.inspection_id.in_(ins_ids))
+        .delete(synchronize_session=False)
+    )
+
+    inspections_deleted = (
+        s.query(Inspection)
+        .filter(Inspection.id.in_(ins_ids))
+        .delete(synchronize_session=False)
+    )
+
+    s.commit()
+    s.close()
+
+    await callback.answer("История очищена.", show_alert=True)
+
+    try:
+        await callback.message.edit_text(
+            f"Очистка истории завершена.\n"
+            f"Период: {period_text}.\n"
+            f"Удалено обходов: {inspections_deleted}\n"
+            f"Удалено замечаний: {issues_deleted}"
+        )
+    except Exception:
+        pass
+
+
+# ===== ОБХОД =====
+
+@dp.message(F.text == "СДЕЛАТЬ ОБХОД")
+async def start_inspection(message: types.Message):
+    logger.info("Сделать обход from %s", message.from_user.id)
+
+    if not is_admin(message.from_user.id):
+        await message.answer(
+            "Сейчас создавать обходы могут только администраторы.\n"
+            "Если нужен обход по отделу — напиши своему администратору 👍",
+            reply_markup=main_menu_kb(False),
+        )
+        return
+
+    USER_STATE[message.from_user.id] = {"mode": None}
+    await message.answer(
+        "Выбери отдел, по которому делаешь обход:",
+        reply_markup=departments_kb("ins_dept:"),
+    )
+
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("ins_dept:"))
+async def choose_inspection_department(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    _, idx = callback.data.split(":")
+    idx = int(idx)
+
+    s = get_session()
+    dept = s.query(Department).filter_by(id=idx).first()
+    user = s.query(User).filter_by(tg_id=user_id).first()
+    if not dept or not user:
+        s.close()
+        await callback.answer("Не удалось найти отдел или пользователя.", show_alert=True)
+        return
+
+    ins = Inspection(
+        department_id=dept.id,
+        inspector_id=user.id,
+        date=date.today(),
+        status="open",
+    )
+    s.add(ins)
+    s.commit()
+    s.refresh(ins)
+    inspection_id = ins.id
+    s.close()
+
+    USER_STATE[user_id] = {
+        "mode": "inspection",
+        "inspection_id": inspection_id,
+        "department_id": dept.id,
+        "last_issue_id": None,
+        "last_issue_cleanup": [],
+    }
+
+    await callback.message.answer(
+        f"Обход по отделу «{dept.name}».\n\n"
+        "1️⃣ Сфоткай нарушение\n"
+        "2️⃣ Потом отправь короткий комментарий текстом.\n"
+        "Повтори для всех замечаний.\n\n"
+        "Когда закончишь — нажми «Завершить обход».",
+        reply_markup=inspection_menu_kb(),
+    )
+    await callback.answer()
+
+
+@dp.message(F.photo)
+async def handle_photo(message: types.Message):
     user_id = message.from_user.id
     state = USER_STATE.get(user_id)
     if not state:
         return
 
-    # 3) исправление: только комментарий ИЛИ комментарий после фото без подписи
-    if state.get("mode") == "fix":
-        issue_id = state.get("issue_id")
-        fixed_photo_id = state.get("fixed_photo_id")
+    caption = message.caption or ""
 
+    # фото во время обхода
+    if state.get("mode") == "inspection":
+        photo = message.photo[-1]
+        file_id = photo.file_id
+
+        s = get_session()
+        issue = Issue(
+            inspection_id=state["inspection_id"],
+            department_id=state["department_id"],
+            photo_url=file_id,
+            status="open",
+            comment=caption if caption else None,
+        )
+        s.add(issue)
+        s.commit()
+        s.refresh(issue)
+        issue_id = issue.id
+        s.close()
+
+        if caption:
+            try:
+                await bot.delete_message(chat_id=user_id, message_id=message.message_id)
+            except Exception:
+                pass
+
+            await bot.send_message(
+                chat_id=user_id,
+                text=f"Замечание #{issue_id} сохранено. Можешь отправить следующее фото или завершить обход.",
+            )
+
+            state["last_issue_id"] = None
+            state["last_issue_cleanup"] = []
+        else:
+            notice_msg = await message.answer(
+                f"Замечание #{issue_id} — фото сохранено. Теперь отправь текст: что тут не так?"
+            )
+
+            state["last_issue_id"] = issue_id
+            state["last_issue_cleanup"] = [
+                message.message_id,
+                notice_msg.message_id,
+            ]
+
+    # фото при исправлении
+    elif state.get("mode") == "fix":
+        issue_id = state.get("issue_id")
         if not issue_id:
             return
 
-        # если фото уже было сохранено в state -> это "фото без подписи, потом текст"
-        if fixed_photo_id:
-            fix_comment = message.text
+        photo = message.photo[-1]
+        file_id = photo.file_id
+
+        if caption:
+            # фото + подпись = сразу исправление
+            fix_comment = caption
 
             s = get_session()
             issue = s.query(Issue).filter_by(id=issue_id).first()
@@ -314,7 +495,7 @@ async def handle_text_comment(message: types.Message):
             dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
             original_comment = issue.comment or "(без текста)"
 
-            issue.fixed_photo_url = fixed_photo_id
+            issue.fixed_photo_url = file_id
             issue.fixed_at = datetime.utcnow()
             issue.status = "pending"
             issue.fixed_by_tg_id = message.from_user.id
@@ -355,7 +536,7 @@ async def handle_text_comment(message: types.Message):
                         )
                         await bot.send_photo(
                             admin_id,
-                            fixed_photo_id,
+                            file_id,
                             caption=caption_after,
                             reply_markup=admin_review_kb(issue_id),
                         )
@@ -363,9 +544,164 @@ async def handle_text_comment(message: types.Message):
                         logger.exception(
                             "Не удалось отправить уведомление админу %s: %s", admin_id, e
                         )
+        else:
+    # фото БЕЗ подписи = вариант "только фото" -> сразу отправляем на проверку
+    fix_comment = "(без комментария)"
+
+    s = get_session()
+    issue = s.query(Issue).filter_by(id=issue_id).first()
+    if not issue:
+        s.close()
+        USER_STATE.pop(user_id, None)
+        await message.answer("Не нашёл это замечание. Попробуй ещё раз через меню «Исправить замечания».")
+        return
+
+    original_photo_id = issue.photo_url
+    dept = s.query(Department).filter_by(id=issue.department_id).first()
+    dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
+    original_comment = issue.comment or "(без текста)"
+
+    issue.fixed_photo_url = file_id
+    issue.fixed_at = datetime.utcnow()
+    issue.status = "pending"
+    issue.fixed_by_tg_id = message.from_user.id
+    s.commit()
+    s.close()
+
+    cleanup_ids = state.get("cleanup_ids", [])
+    cleanup_ids.append(message.message_id)
+    for mid in cleanup_ids:
+        try:
+            await bot.delete_message(chat_id=user_id, message_id=mid)
+        except Exception:
+            pass
+
+    USER_STATE.pop(user_id, None)
+
+    await bot.send_message(
+        chat_id=user_id,
+        text=f"Супер, замечание #{issue_id} отправлено на проверку. Спасибо! 🙌",
+    )
+
+    if ADMIN_IDS:
+        for admin_id in ADMIN_IDS:
+            try:
+                if original_photo_id:
+                    await bot.send_photo(
+                        admin_id,
+                        original_photo_id,
+                        caption=(
+                            f"До исправления. Замечание #{issue_id} по отделу «{dept_name}».\n"
+                            f"{original_comment}"
+                        ),
+                    )
+
+                caption_after = (
+                    f"После исправления замечания #{issue_id} по отделу «{dept_name}».\n"
+                    f"Исправил: {message.from_user.full_name}\n\n"
+                    f"Комментарий к исправлению: {fix_comment}"
+                )
+                await bot.send_photo(
+                    admin_id,
+                    file_id,
+                    caption=caption_after,
+                    reply_markup=admin_review_kb(issue_id),
+                )
+            except Exception as e:
+                logger.exception("Не удалось отправить уведомление админу %s: %s", admin_id, e)
+
+
+@dp.message(
+    F.text
+    & (~F.text.startswith("/"))
+    & (F.text != "СДЕЛАТЬ ОБХОД")
+    & (F.text != "ИСТОРИЯ ОБХОДОВ")
+    & (F.text != "ОЧИСТИТЬ ИСТОРИЮ")
+    & (F.text != "ЗАВЕРШИТЬ ОБХОД")
+    & (F.text != "НАЗАД")
+    & (F.text != "ИСПРАВИТЬ ЗАМЕЧАНИЯ")
+)
+async def handle_text_comment(message: types.Message):
+    user_id = message.from_user.id
+    state = USER_STATE.get(user_id)
+    if not state:
+        return
+
+    # комментарий к исправлению (после фото без подписи)
+    if state.get("mode") == "fix":
+        issue_id = state.get("issue_id")
+        fixed_photo_id = state.get("fixed_photo_id")
+
+        if not issue_id:
             return
 
-        # иначе фото не было -> это "только комментарий"
+if not fixed_photo_id:
+    # вариант "только комментарий" -> сразу отправляем на проверку
+    fix_comment = message.text
+
+    s = get_session()
+    issue = s.query(Issue).filter_by(id=issue_id).first()
+    if not issue:
+        s.close()
+        USER_STATE.pop(user_id, None)
+        await message.answer("Не нашёл это замечание. Попробуй ещё раз через меню «Исправить замечания».")
+        return
+
+    original_photo_id = issue.photo_url
+    dept = s.query(Department).filter_by(id=issue.department_id).first()
+    dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
+    original_comment = issue.comment or "(без текста)"
+
+    issue.fixed_photo_url = None
+    issue.fixed_at = datetime.utcnow()
+    issue.status = "pending"
+    issue.fixed_by_tg_id = message.from_user.id
+    s.commit()
+    s.close()
+
+    cleanup_ids = state.get("cleanup_ids", [])
+    cleanup_ids.append(message.message_id)
+    for mid in cleanup_ids:
+        try:
+            await bot.delete_message(chat_id=user_id, message_id=mid)
+        except Exception:
+            pass
+
+    USER_STATE.pop(user_id, None)
+
+    await bot.send_message(
+        chat_id=user_id,
+        text=f"Супер, замечание #{issue_id} отправлено на проверку. Спасибо! 🙌",
+    )
+
+    if ADMIN_IDS:
+        for admin_id in ADMIN_IDS:
+            try:
+                if original_photo_id:
+                    await bot.send_photo(
+                        admin_id,
+                        original_photo_id,
+                        caption=(
+                            f"До исправления. Замечание #{issue_id} по отделу «{dept_name}».\n"
+                            f"{original_comment}"
+                        ),
+                    )
+
+                await bot.send_message(
+                    admin_id,
+                    text=(
+                        f"После исправления замечания #{issue_id} по отделу «{dept_name}».\n"
+                        f"Исправил: {message.from_user.full_name}\n\n"
+                        f"Комментарий к исправлению: {fix_comment}\n"
+                        f"Фото после исправления: (не приложено)"
+                    ),
+                    reply_markup=admin_review_kb(issue_id),
+                )
+            except Exception as e:
+                logger.exception("Не удалось отправить уведомление админу %s: %s", admin_id, e)
+
+    return
+
         fix_comment = message.text
 
         s = get_session()
@@ -383,7 +719,7 @@ async def handle_text_comment(message: types.Message):
         dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
         original_comment = issue.comment or "(без текста)"
 
-        issue.fixed_photo_url = None
+        issue.fixed_photo_url = fixed_photo_id
         issue.fixed_at = datetime.utcnow()
         issue.status = "pending"
         issue.fixed_by_tg_id = message.from_user.id
@@ -417,15 +753,15 @@ async def handle_text_comment(message: types.Message):
                                 f"{original_comment}"
                             ),
                         )
-
-                    await bot.send_message(
+                    caption_after = (
+                        f"После исправления замечания #{issue_id} по отделу «{dept_name}».\n"
+                        f"Исправил: {message.from_user.full_name}\n\n"
+                        f"Комментарий к исправлению: {fix_comment}"
+                    )
+                    await bot.send_photo(
                         admin_id,
-                        text=(
-                            f"После исправления замечания #{issue_id} по отделу «{dept_name}».\n"
-                            f"Исправил: {message.from_user.full_name}\n\n"
-                            f"Комментарий к исправлению: {fix_comment}\n"
-                            f"Фото после исправления: (не приложено)"
-                        ),
+                        fixed_photo_id,
+                        caption=caption_after,
                         reply_markup=admin_review_kb(issue_id),
                     )
                 except Exception as e:
@@ -472,6 +808,7 @@ async def handle_text_comment(message: types.Message):
         text="Комментарий сохранён. Можешь отправить следующее фото или завершить обход.",
     )
 
+
 @dp.message(F.text == "ЗАВЕРШИТЬ ОБХОД")
 async def finish_inspection(message: types.Message):
     user_id = message.from_user.id
@@ -488,41 +825,35 @@ async def finish_inspection(message: types.Message):
     dept_name = "неизвестный отдел"
     inspector_name = message.from_user.full_name
     ins_date = date.today()
-    issues_count = 0
-
     if ins:
         ins.status = "completed"
         s.commit()
-
         dept = s.query(Department).filter_by(id=ins.department_id).first()
         if dept:
             dept_name = dept.name
-
         inspector = s.query(User).filter_by(id=ins.inspector_id).first()
         if inspector and inspector.name:
             inspector_name = inspector.name
-
         ins_date = ins.date
-
-        issues_count = (
-            s.query(Issue)
-            .filter(Issue.inspection_id == state["inspection_id"])
-            .count()
-        )
-
     s.close()
 
     if BALIZAG_CHAT_ID:
         try:
-            control_date = ins_date + timedelta(days=7)
+issues_count = (
+    s.query(Issue)
+    .filter(Issue.inspection_id == state["inspection_id"])
+    .count()
+                )
 
-            text = (
-                f"Завершён обход по бализажу\n"
-                f"🏷 Отдел: {dept_name}\n"
-                f"⚠️ Замечаний: {issues_count}\n"
-                f"👤 Аудитор: {inspector_name}\n"
-                f"📅 Дата аудита: {ins_date.strftime('%d.%m.%Y')}\n"
-                f"⏳ Контроль до: {control_date.strftime('%d.%m.%Y')}"
+    control_date = ins_date + timedelta(days=7)
+
+    text = (
+    f"Завершён обход по бализажу\n"
+    f"🏷 Отдел: {dept_name}\n"
+    f"⚠️ Замечаний: {issues_count}\n"
+    f"👤 Аудитор: {inspector_name}\n"
+    f"📅 Дата аудита: {ins_date.strftime('%d.%m.%Y')}\n"
+    f"⏳ Контроль до: {control_date.strftime('%d.%m.%Y')}"
             )
 
             await bot.send_message(
@@ -541,6 +872,7 @@ async def finish_inspection(message: types.Message):
         "Обход завершён. Всё сохранил.",
         reply_markup=main_menu_kb(is_admin(user_id)),
     )
+
 
 @dp.message(F.text == "Отмена")
 async def cancel_any(message: types.Message):
