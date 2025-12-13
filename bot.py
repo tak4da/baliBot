@@ -765,7 +765,7 @@ async def finish_inspection(message: types.Message):
         )
         return
 
-     s = get_session()
+    s = get_session()
     ins = s.query(Inspection).filter_by(id=state["inspection_id"]).first()
     dept_name = "неизвестный отдел"
     inspector_name = message.from_user.full_name
