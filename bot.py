@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 from datetime import datetime, date, timedelta
-
+from aiogram import F
 from sqlalchemy import text
 
 from aiogram import Bot, Dispatcher, types
