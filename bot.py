@@ -544,31 +544,31 @@ async def handle_photo(message: types.Message):
                         )
         else:
     # фото БЕЗ подписи = вариант "только фото" -> сразу отправляем на проверку
-    fix_comment = "(без комментария)"
+        fix_comment = "(без комментария)"
 
-    s = get_session()
-    issue = s.query(Issue).filter_by(id=issue_id).first()
-    if not issue:
+        s = get_session()
+        issue = s.query(Issue).filter_by(id=issue_id).first()
+        if not issue:
         s.close()
         USER_STATE.pop(user_id, None)
         await message.answer("Не нашёл это замечание. Попробуй ещё раз через меню «Исправить замечания».")
         return
 
-    original_photo_id = issue.photo_url
-    dept = s.query(Department).filter_by(id=issue.department_id).first()
-    dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
-    original_comment = issue.comment or "(без текста)"
+        original_photo_id = issue.photo_url
+        dept = s.query(Department).filter_by(id=issue.department_id).first()
+        dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
+        original_comment = issue.comment or "(без текста)"
 
-    issue.fixed_photo_url = file_id
-    issue.fixed_at = datetime.utcnow()
-    issue.status = "pending"
-    issue.fixed_by_tg_id = message.from_user.id
-    s.commit()
-    s.close()
+        issue.fixed_photo_url = file_id
+        issue.fixed_at = datetime.utcnow()
+        issue.status = "pending"
+        issue.fixed_by_tg_id = message.from_user.id
+        s.commit()
+        s.close()
 
-    cleanup_ids = state.get("cleanup_ids", [])
-    cleanup_ids.append(message.message_id)
-    for mid in cleanup_ids:
+        cleanup_ids = state.get("cleanup_ids", [])
+        cleanup_ids.append(message.message_id)
+        for mid in cleanup_ids:
         try:
             await bot.delete_message(chat_id=user_id, message_id=mid)
         except Exception:
