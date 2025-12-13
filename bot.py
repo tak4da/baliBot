@@ -467,7 +467,7 @@ async def handle_photo(message: types.Message):
                 notice_msg.message_id,
             ]
 
-else:
+        else:
             # фото БЕЗ подписи = вариант "только фото" -> сразу отправляем на проверку
             fix_comment = "(без комментария)"
 
