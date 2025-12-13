@@ -800,13 +800,13 @@ async def finish_inspection(message: types.Message):
             control_date = ins_date + timedelta(days=7)
 
             text = (
-                f"Завершён обход по бализажу<br>"
-                f"🏷 Отдел: {dept_name}<br>"
-                f"⚠️ Замечаний: {issues_count}<br>"
-                f"👤 Аудитор: {inspector_name}<br>"
-                f"📅 Дата аудита: {ins_date.strftime('%d.%m.%Y')}<br>"
-                f"⏳ Исправить до: {control_date.strftime('%d.%m.%Y')}<br>"
-                f"🤖 Перейти в бота: @BalisageAudit_bot<br>"
+                f"Завершён обход по бализажу\n"
+                f"📌 Отдел: {dept_name}\n"
+                f"⚠️ Замечаний: {issues_count}\n"
+                f"👷 Аудитор: {inspector_name}\n"
+                f"📅 Дата аудита: {ins_date.strftime('%d.%m.%Y')}\n"
+                f"📍 Исправить до: {control_date.strftime('%d.%m.%Y')}\n"
+                f"🤖 Перейти в бота: @BalisageAudit_bot"
             )
 
             await bot.send_message(
