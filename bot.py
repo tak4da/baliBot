@@ -545,18 +545,70 @@ async def handle_photo(message: types.Message):
                             "Не удалось отправить уведомление админу %s: %s", admin_id, e
                         )
         else:
-            # фото без подписи — ждём текст
-            state["fixed_photo_id"] = file_id
+    # фото БЕЗ подписи = вариант "только фото" -> сразу отправляем на проверку
+    fix_comment = "(без комментария)"
 
-            cleanup_ids = state.get("cleanup_ids", [])
-            cleanup_ids.append(message.message_id)
+    s = get_session()
+    issue = s.query(Issue).filter_by(id=issue_id).first()
+    if not issue:
+        s.close()
+        USER_STATE.pop(user_id, None)
+        await message.answer("Не нашёл это замечание. Попробуй ещё раз через меню «Исправить замечания».")
+        return
 
-            notice_msg = await message.answer(
-                f"Фото для замечания #{issue_id} сохранено.\n"
-                "Теперь отправь короткий комментарий: что сделано."
-            )
-            cleanup_ids.append(notice_msg.message_id)
-            state["cleanup_ids"] = cleanup_ids
+    original_photo_id = issue.photo_url
+    dept = s.query(Department).filter_by(id=issue.department_id).first()
+    dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
+    original_comment = issue.comment or "(без текста)"
+
+    issue.fixed_photo_url = file_id
+    issue.fixed_at = datetime.utcnow()
+    issue.status = "pending"
+    issue.fixed_by_tg_id = message.from_user.id
+    s.commit()
+    s.close()
+
+    cleanup_ids = state.get("cleanup_ids", [])
+    cleanup_ids.append(message.message_id)
+    for mid in cleanup_ids:
+        try:
+            await bot.delete_message(chat_id=user_id, message_id=mid)
+        except Exception:
+            pass
+
+    USER_STATE.pop(user_id, None)
+
+    await bot.send_message(
+        chat_id=user_id,
+        text=f"Супер, замечание #{issue_id} отправлено на проверку. Спасибо! 🙌",
+    )
+
+    if ADMIN_IDS:
+        for admin_id in ADMIN_IDS:
+            try:
+                if original_photo_id:
+                    await bot.send_photo(
+                        admin_id,
+                        original_photo_id,
+                        caption=(
+                            f"До исправления. Замечание #{issue_id} по отделу «{dept_name}».\n"
+                            f"{original_comment}"
+                        ),
+                    )
+
+                caption_after = (
+                    f"После исправления замечания #{issue_id} по отделу «{dept_name}».\n"
+                    f"Исправил: {message.from_user.full_name}\n\n"
+                    f"Комментарий к исправлению: {fix_comment}"
+                )
+                await bot.send_photo(
+                    admin_id,
+                    file_id,
+                    caption=caption_after,
+                    reply_markup=admin_review_kb(issue_id),
+                )
+            except Exception as e:
+                logger.exception("Не удалось отправить уведомление админу %s: %s", admin_id, e)
 
 
 @dp.message(
@@ -583,11 +635,72 @@ async def handle_text_comment(message: types.Message):
         if not issue_id:
             return
 
-        if not fixed_photo_id:
-            await message.answer(
-                "Сначала отправь фото после исправления, затем комментарий."
-            )
-            return
+if not fixed_photo_id:
+    # вариант "только комментарий" -> сразу отправляем на проверку
+    fix_comment = message.text
+
+    s = get_session()
+    issue = s.query(Issue).filter_by(id=issue_id).first()
+    if not issue:
+        s.close()
+        USER_STATE.pop(user_id, None)
+        await message.answer("Не нашёл это замечание. Попробуй ещё раз через меню «Исправить замечания».")
+        return
+
+    original_photo_id = issue.photo_url
+    dept = s.query(Department).filter_by(id=issue.department_id).first()
+    dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
+    original_comment = issue.comment or "(без текста)"
+
+    issue.fixed_photo_url = None
+    issue.fixed_at = datetime.utcnow()
+    issue.status = "pending"
+    issue.fixed_by_tg_id = message.from_user.id
+    s.commit()
+    s.close()
+
+    cleanup_ids = state.get("cleanup_ids", [])
+    cleanup_ids.append(message.message_id)
+    for mid in cleanup_ids:
+        try:
+            await bot.delete_message(chat_id=user_id, message_id=mid)
+        except Exception:
+            pass
+
+    USER_STATE.pop(user_id, None)
+
+    await bot.send_message(
+        chat_id=user_id,
+        text=f"Супер, замечание #{issue_id} отправлено на проверку. Спасибо! 🙌",
+    )
+
+    if ADMIN_IDS:
+        for admin_id in ADMIN_IDS:
+            try:
+                if original_photo_id:
+                    await bot.send_photo(
+                        admin_id,
+                        original_photo_id,
+                        caption=(
+                            f"До исправления. Замечание #{issue_id} по отделу «{dept_name}».\n"
+                            f"{original_comment}"
+                        ),
+                    )
+
+                await bot.send_message(
+                    admin_id,
+                    text=(
+                        f"После исправления замечания #{issue_id} по отделу «{dept_name}».\n"
+                        f"Исправил: {message.from_user.full_name}\n\n"
+                        f"Комментарий к исправлению: {fix_comment}\n"
+                        f"Фото после исправления: (не приложено)"
+                    ),
+                    reply_markup=admin_review_kb(issue_id),
+                )
+            except Exception as e:
+                logger.exception("Не удалось отправить уведомление админу %s: %s", admin_id, e)
+
+    return
 
         fix_comment = message.text
 
@@ -865,9 +978,11 @@ async def mark_issue_fixed(callback: types.CallbackQuery):
     issue_id = int(issue_id_str)
 
     prompt_msg = await callback.message.answer(
-        f"Отправь фото после исправления для замечания #{issue_id}.\n"
-        "Можешь сразу написать комментарий в подписи к фото.\n"
-        "Если отправишь фото без подписи — дальше отправь текст отдельным сообщением."
+    f"Исправление для замечания #{issue_id}.\n"
+    "Отправь ЛЮБОЙ вариант:\n"
+    "1) фото\n"
+    "2) комментарий\n"
+    "3) фото + комментарий (в подписи)\n"
     )
 
     USER_STATE[callback.from_user.id] = {
