@@ -726,10 +726,21 @@ async def finish_inspection(message: types.Message):
 
     if BALIZAG_CHAT_ID:
         try:
-            text = (
-                f"Завершён обход по отделу «{dept_name}».\n"
-                f"Аудитор: {inspector_name}\n"
-                f"Дата: {ins_date.strftime('%d.%m.%Y')}"
+issues_count = (
+    s.query(Issue)
+    .filter(Issue.inspection_id == state["inspection_id"])
+    .count()
+                )
+
+    control_date = ins_date + timedelta(days=7)
+
+    text = (
+    f"Обходы по бализажу\n"
+    f"🏷 Отдел: {dept_name}\n"
+    f"⚠️ Замечаний: {issues_count}\n"
+    f"👤 Аудитор: {inspector_name}\n"
+    f"📅 Дата аудита: {ins_date.strftime('%d.%m.%Y')}\n"
+    f"⏳ Контроль до: {control_date.strftime('%d.%m.%Y')}"
             )
 
             await bot.send_message(
