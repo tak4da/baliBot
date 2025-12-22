@@ -563,6 +563,64 @@ async def handle_text_comment(message: types.Message):
     if not state:
         return
 
+    # ===== КОММЕНТАРИЙ АДМИНА ПРИ "ВЕРНУТЬ В РАБОТУ" =====
+    if state.get("mode") == "return_comment":
+        issue_id = state.get("issue_id")
+        admin_comment = (message.text or "").strip()
+
+        if admin_comment in ("-", "без", "без комментария", "нет"):
+            admin_comment = ""
+
+        s = get_session()
+        issue = s.query(Issue).filter_by(id=issue_id).first()
+        if not issue:
+            s.close()
+            USER_STATE.pop(user_id, None)
+            await message.answer("Замечание не найдено (возможно уже обработано).")
+            return
+
+        fixed_by_tg_id = issue.fixed_by_tg_id
+        comment_text = issue.comment or "(без текста)"
+
+        dept = s.query(Department).filter_by(id=issue.department_id).first()
+        dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
+
+        # Возвращаем в работу (как у тебя было)
+        issue.status = "open"
+        issue.fixed_photo_url = None
+        issue.fixed_at = None
+        s.commit()
+        s.close()
+
+        USER_STATE.pop(user_id, None)
+
+        await message.answer("↩️ Ок, вернул(а) замечание в работу.")
+
+        # Уведомляем исполнителя (если известен)
+        if fixed_by_tg_id:
+            try:
+                text_to_worker = (
+                    f"Твоё исправление по замечанию #{issue_id} вернули в работу.\n"
+                    f"Отдел: {dept_name}\n"
+                    f"Текст замечания: {comment_text}\n"
+                )
+                if admin_comment:
+                    text_to_worker += f"\nКомментарий админа: {admin_comment}\n"
+                text_to_worker += "\nПожалуйста, проверь ещё раз и исправь 🙂"
+
+                await bot.send_message(
+                    chat_id=fixed_by_tg_id,
+                    text=text_to_worker,
+                )
+            except Exception as e:
+                logger.exception(
+                    "Не удалось отправить уведомление сотруднику %s: %s",
+                    fixed_by_tg_id,
+                    e,
+                )
+        return
+
+
     # комментарий к исправлению (после фото без подписи)
     if state.get("mode") == "fix":
         issue_id = state.get("issue_id")
@@ -1004,10 +1062,12 @@ async def return_issue_to_work(callback: types.CallbackQuery):
     _, issue_id_str = callback.data.split(":")
     issue_id = int(issue_id_str)
 
+    # Проверим, что замечание ещё существует
     s = get_session()
     issue = s.query(Issue).filter_by(id=issue_id).first()
+    s.close()
+
     if not issue:
-        s.close()
         await callback.answer("Это замечание уже обработано.")
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
@@ -1015,41 +1075,27 @@ async def return_issue_to_work(callback: types.CallbackQuery):
             pass
         return
 
-    fixed_by_tg_id = issue.fixed_by_tg_id
-    comment_text = issue.comment or "(без текста)"
+    # Сохраняем ожидание комментария от админа (2-й шаг)
+    USER_STATE[callback.from_user.id] = {
+        "mode": "return_comment",
+        "issue_id": issue_id,
+        "admin_review_msg_chat_id": callback.message.chat.id,
+        "admin_review_msg_id": callback.message.message_id,
+    }
 
-    dept = s.query(Department).filter_by(id=issue.department_id).first()
-    dept_name = dept.name if dept else f"Отдел #{issue.department_id}"
+    await callback.answer()
 
-    issue.status = "open"
-    issue.fixed_photo_url = None
-    issue.fixed_at = None
-    s.commit()
-    s.close()
-
-    await callback.answer("Замечание возвращено в работу.")
+    # Чтобы кнопки не нажимали повторно — можно убрать клавиатуру
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
-    if fixed_by_tg_id:
-        try:
-            await bot.send_message(
-                chat_id=fixed_by_tg_id,
-                text=(
-                    f"Твоё исправление по замечанию #{issue_id} вернули в работу.\n"
-                    f"Отдел: {dept_name}\n"
-                    f"Текст замечания: {comment_text}\n\n"
-                    "Пожалуйста, проверь ещё раз и исправь️🙂"
-                ),
-            )
-        except Exception as e:
-            logger.exception(
-                "Не удалось отправить уведомление сотруднику %s: %s",
-                fixed_by_tg_id,
-                e,
-            )
+    await callback.message.answer(
+        f"✍️ Напиши комментарий, почему замечание #{issue_id} возвращаешь в работу.\n"
+        "Если без комментария — отправь `-`."
+    )
+
 
 
 # ===== ИСТОРИЯ ОБХОДОВ =====
