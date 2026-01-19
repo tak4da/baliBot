@@ -34,12 +34,12 @@ TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data_simple.db")
 
 # ID чата-конфы магазина (Бализаж), куда слать уведомления
-BALIZAG_CHAT_ID = -1002815036494      # правильный ID группы
+BALIZAG_CHAT_ID = -1821057506      # правильный ID группы
 # ID ветки в Бализаж (если нужна). Пока None — можно потом подставить.
-BALIZAG_THREAD_ID = 29984
+BALIZAG_THREAD_ID = 78990
 
 # ID админов, которые могут подтверждать/возвращать замечания
-ADMIN_IDS = {208004861}
+ADMIN_IDS = {716068376}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
