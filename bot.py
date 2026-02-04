@@ -36,7 +36,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data_simple.db")
 # ID чата-конфы магазина (Бализаж), куда слать уведомления
 BALIZAG_CHAT_ID = -1003857868751      # правильный ID группы
 # ID ветки в Бализаж (если нужна). Пока None — можно потом подставить.
-BALIZAG_THREAD_ID = 3
+BALIZAG_THREAD_ID = 1
 
 # ID админов, которые могут подтверждать/возвращать замечания
 ADMIN_IDS = {588486821, 377226664}
