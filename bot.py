@@ -116,6 +116,8 @@ DEPARTMENTS = [
     "Освещение",
     "Хранение",
     "Кухни",
+    "Закассовая зона",
+    "Выдача",
 ]
 
 # Память процесса: режимы пользователя
@@ -250,11 +252,12 @@ async def cmd_start(message: types.Message):
 
     s = get_session()
 
-    # создаём отделы при первом запуске
-    if s.query(Department).count() == 0:
-        for name in DEPARTMENTS:
+    # создаём отделы при первом запуске и добавляем недостающие
+    existing = {d.name for d in s.query(Department).all()}
+    for name in DEPARTMENTS:
+        if name not in existing:
             s.add(Department(name=name))
-        s.commit()
+    s.commit()
 
     # регистрируем пользователя
     user = s.query(User).filter_by(tg_id=message.from_user.id).first()
