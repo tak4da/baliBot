@@ -266,8 +266,8 @@ async def cmd_start(message: types.Message):
     # создаём отделы при первом запуске
     existing = {d.name for d in s.query(Department).all()}
     for name in DEPARTMENTS:
-    if name not in existing:
-        s.add(Department(name=name))
+        if name not in existing:
+            s.add(Department(name=name))
     s.commit()
 
     # регистрируем пользователя
