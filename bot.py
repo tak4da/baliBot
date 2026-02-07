@@ -116,6 +116,8 @@ DEPARTMENTS = [
     "Освещение",
     "Хранение",
     "Кухни",
+    "Закассовая зона",
+    "Выдача",
 ]
 
 # Память процесса: режимы пользователя
@@ -217,9 +219,20 @@ def clear_history_kb() -> InlineKeyboardMarkup:
 
 def departments_kb(prefix: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for i, d in enumerate(DEPARTMENTS, start=1):
+
+    # первые 15 отделов сеткой 3 в ряд
+    main = DEPARTMENTS[:15]
+    extra = DEPARTMENTS[15:]  # ["Закассовая зона", "Выдача"]
+
+    for i, d in enumerate(main, start=1):
         builder.button(text=d, callback_data=f"{prefix}{i}")
-    builder.adjust(3)
+
+    # две кнопки снизу отдельным блоком
+    for j, d in enumerate(extra, start=16):
+        builder.button(text=d, callback_data=f"{prefix}{j}")
+
+    # 15 = 5 рядов по 3, потом 2 кнопки в последнем ряду
+    builder.adjust(3, 3, 3, 3, 3, 2)
     return builder.as_markup()
 
 
@@ -251,10 +264,11 @@ async def cmd_start(message: types.Message):
     s = get_session()
 
     # создаём отделы при первом запуске
-    if s.query(Department).count() == 0:
-        for name in DEPARTMENTS:
-            s.add(Department(name=name))
-        s.commit()
+    existing = {d.name for d in s.query(Department).all()}
+    for name in DEPARTMENTS:
+    if name not in existing:
+        s.add(Department(name=name))
+    s.commit()
 
     # регистрируем пользователя
     user = s.query(User).filter_by(tg_id=message.from_user.id).first()
