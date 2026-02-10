@@ -857,7 +857,7 @@ async def finish_inspection(message: types.Message):
 
     if BALIZAG_CHAT_ID:
         try:
-            control_date = ins_date + timedelta(days=7)
+            control_date = ins_date + timedelta(days=3)
 
             text = (
                 f"Завершён обход по бализажу\n"
