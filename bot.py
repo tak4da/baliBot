@@ -34,12 +34,12 @@ TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data_simple.db")
 
 # ID чата-конфы магазина (Бализаж), куда слать уведомления
-BALIZAG_CHAT_ID = -1002581260114      # правильный ID группы
+BALIZAG_CHAT_ID = -1002634353841      # правильный ID группы
 # ID ветки в Бализаж (если нужна). Пока None — можно потом подставить.
 BALIZAG_THREAD_ID = 4893
 
 # ID админов, которые могут подтверждать/возвращать замечания
-ADMIN_IDS = {737180948}
+ADMIN_IDS = {77431363}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -866,7 +866,7 @@ async def finish_inspection(message: types.Message):
                 f"👷 Аудитор: {inspector_name}\n"
                 f"📅 Дата аудита: {ins_date.strftime('%d.%m.%Y')}\n"
                 f"📍 Исправить до: {control_date.strftime('%d.%m.%Y')}\n"
-                f"🤖 Перейти в бота: @BalisageAudit_18_bot"
+                f"🤖 Перейти в бота: @BalisageAudit_74_bot"
             )
 
             await bot.send_message(
